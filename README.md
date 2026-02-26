@@ -4,6 +4,27 @@
 
 ## How to Run
 
+### 快速测试
+
+```bash
+# 运行测试脚本（自动检测环境、安装依赖、启动服务并测试）
+./run.sh
+
+# 查看代理日志
+./run.sh logs
+
+# 停止服务
+./run.sh stop
+```
+
+run.sh 脚本功能：
+- 自动检测操作系统（Mac/Linux/Windows）
+- 检查并提示安装 Docker 和 Docker Compose
+- 启动所有服务（Zookeeper、Kafka、Kafka-Relay）
+- 等待服务就绪
+- 自动创建测试 topic，发送和消费消息验证代理功能
+- 显示代理日志
+
 ### Docker 启动
 
 ```bash
@@ -34,19 +55,6 @@ cargo run --release -- \
   --advertised-port 9092 \
   --upstream-host localhost \
   --upstream-port 9093
-```
-
-### 快速测试
-
-```bash
-# 运行测试脚本（自动启动服务并测试）
-./test.sh
-
-# 查看代理日志
-./test.sh logs
-
-# 停止服务
-./test.sh stop
 ```
 
 ## Services
