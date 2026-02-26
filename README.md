@@ -2,6 +2,12 @@
 
 一个 Rust 实现的 Kafka 协议代理/中继服务，能够伪装成 Kafka Server，接收 Kafka Client 连接，解析 Kafka 协议数据进行处理后转发到上游 Kafka Broker。
 
+## 文档
+
+- [API 文档](docs/API.md) - 详细的 API 接口和协议格式说明
+- [协议实现说明](docs/PROTOCOL.md) - 代码结构和实现细节
+- [架构设计](docs/ARCHITECTURE.md) - 系统架构和设计决策
+
 ## How to Run
 
 ### 快速测试
