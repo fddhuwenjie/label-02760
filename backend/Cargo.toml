@@ -1,0 +1,20 @@
+[package]
+name = "kafka-relay"
+version = "0.1.0"
+edition = "2021"
+description = "A Kafka protocol relay/proxy that intercepts and forwards Kafka messages"
+authors = ["kafka-relay"]
+
+[dependencies]
+tokio = { version = "1.35", features = ["full"] }
+bytes = "1.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "1.0"
+anyhow = "1.0"
+clap = { version = "4.4", features = ["derive", "env"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
