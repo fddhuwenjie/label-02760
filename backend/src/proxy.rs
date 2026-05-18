@@ -12,6 +12,9 @@ use tracing::{debug, error, info, warn};
 use crate::config::Config;
 use crate::protocol::*;
 
+const MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
+const MAX_CUMULATIVE_ALLOCATION: usize = 256 * 1024 * 1024;
+
 /// Statistics for monitoring proxy activity
 #[derive(Debug, Default)]
 pub struct ProxyStats {
@@ -180,29 +183,41 @@ async fn handle_client_to_upstream(
     tx: mpsc::Sender<Vec<u8>>,
     ctx: ProxyContext,
 ) -> Result<()> {
-    let mut buf = vec![0u8; 64 * 1024];
+    let mut buf = Vec::new();
+    let mut cumulative_allocated: usize = 0;
     
     loop {
-        // Read message size (4 bytes)
         let mut size_buf = [0u8; 4];
         client_read.read_exact(&mut size_buf).await
             .context("Failed to read message size from client")?;
-        let size = i32::from_be_bytes(size_buf) as usize;
+        let raw_size = i32::from_be_bytes(size_buf);
+        if raw_size < 0 {
+            return Err(anyhow::anyhow!("Negative message size {} from client", raw_size));
+        }
+        let size = raw_size as usize;
         
         if size == 0 {
             warn!("Received zero-length message from client");
             continue;
         }
         
-        if size > 100 * 1024 * 1024 {
-            return Err(anyhow::anyhow!("Message size {} exceeds maximum allowed", size));
+        if size > MAX_MESSAGE_SIZE {
+            return Err(anyhow::anyhow!(
+                "Message size {} exceeds maximum allowed {} bytes", size, MAX_MESSAGE_SIZE
+            ));
         }
         
-        if size > buf.len() {
-            buf.resize(size, 0);
+        let new_bytes = if size > buf.capacity() { size - buf.capacity() } else { 0 };
+        if cumulative_allocated + new_bytes > MAX_CUMULATIVE_ALLOCATION {
+            return Err(anyhow::anyhow!(
+                "Cumulative allocation {} bytes exceeds limit {} bytes, disconnecting",
+                cumulative_allocated + new_bytes, MAX_CUMULATIVE_ALLOCATION
+            ));
         }
         
-        // Read message body
+        buf.resize(size, 0);
+        cumulative_allocated += new_bytes;
+        
         client_read.read_exact(&mut buf[..size]).await
             .context("Failed to read message body from client")?;
 
@@ -369,29 +384,41 @@ async fn handle_upstream_to_client(
     tx: mpsc::Sender<Vec<u8>>,
     ctx: ProxyContext,
 ) -> Result<()> {
-    let mut buf = vec![0u8; 64 * 1024];
+    let mut buf = Vec::new();
+    let mut cumulative_allocated: usize = 0;
     
     loop {
-        // Read message size (4 bytes)
         let mut size_buf = [0u8; 4];
         upstream_read.read_exact(&mut size_buf).await
             .context("Failed to read response size from upstream")?;
-        let size = i32::from_be_bytes(size_buf) as usize;
+        let raw_size = i32::from_be_bytes(size_buf);
+        if raw_size < 0 {
+            return Err(anyhow::anyhow!("Negative response size {} from upstream", raw_size));
+        }
+        let size = raw_size as usize;
         
         if size == 0 {
             warn!("Received zero-length response from upstream");
             continue;
         }
         
-        if size > 100 * 1024 * 1024 {
-            return Err(anyhow::anyhow!("Response size {} exceeds maximum allowed", size));
+        if size > MAX_MESSAGE_SIZE {
+            return Err(anyhow::anyhow!(
+                "Response size {} exceeds maximum allowed {} bytes", size, MAX_MESSAGE_SIZE
+            ));
         }
         
-        if size > buf.len() {
-            buf.resize(size, 0);
+        let new_bytes = if size > buf.capacity() { size - buf.capacity() } else { 0 };
+        if cumulative_allocated + new_bytes > MAX_CUMULATIVE_ALLOCATION {
+            return Err(anyhow::anyhow!(
+                "Cumulative allocation {} bytes exceeds limit {} bytes, disconnecting",
+                cumulative_allocated + new_bytes, MAX_CUMULATIVE_ALLOCATION
+            ));
         }
         
-        // Read message body
+        buf.resize(size, 0);
+        cumulative_allocated += new_bytes;
+        
         upstream_read.read_exact(&mut buf[..size]).await
             .context("Failed to read response body from upstream")?;
 
