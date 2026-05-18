@@ -174,6 +174,9 @@ async fn handle_connection(
     Ok(())
 }
 
+const MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
+const MAX_TOTAL_BUFFER: usize = 256 * 1024 * 1024;
+
 async fn handle_client_to_upstream(
     mut client_read: tokio::net::tcp::OwnedReadHalf,
     mut upstream_write: tokio::net::tcp::OwnedWriteHalf,
@@ -181,28 +184,40 @@ async fn handle_client_to_upstream(
     ctx: ProxyContext,
 ) -> Result<()> {
     let mut buf = vec![0u8; 64 * 1024];
-    
+    let mut total_allocated: usize = buf.len();
+
     loop {
-        // Read message size (4 bytes)
         let mut size_buf = [0u8; 4];
         client_read.read_exact(&mut size_buf).await
             .context("Failed to read message size from client")?;
         let size = i32::from_be_bytes(size_buf) as usize;
-        
+
         if size == 0 {
             warn!("Received zero-length message from client");
             continue;
         }
-        
-        if size > 100 * 1024 * 1024 {
-            return Err(anyhow::anyhow!("Message size {} exceeds maximum allowed", size));
+
+        if size > MAX_MESSAGE_SIZE {
+            return Err(anyhow::anyhow!(
+                "Message size {} exceeds maximum allowed ({})",
+                size,
+                MAX_MESSAGE_SIZE
+            ));
         }
-        
+
         if size > buf.len() {
+            let needed = size - buf.len();
+            if total_allocated + needed > MAX_TOTAL_BUFFER {
+                return Err(anyhow::anyhow!(
+                    "Total buffer allocation {} would exceed limit {}, disconnecting",
+                    total_allocated + needed,
+                    MAX_TOTAL_BUFFER
+                ));
+            }
             buf.resize(size, 0);
+            total_allocated += needed;
         }
-        
-        // Read message body
+
         client_read.read_exact(&mut buf[..size]).await
             .context("Failed to read message body from client")?;
 
@@ -370,28 +385,40 @@ async fn handle_upstream_to_client(
     ctx: ProxyContext,
 ) -> Result<()> {
     let mut buf = vec![0u8; 64 * 1024];
-    
+    let mut total_allocated: usize = buf.len();
+
     loop {
-        // Read message size (4 bytes)
         let mut size_buf = [0u8; 4];
         upstream_read.read_exact(&mut size_buf).await
             .context("Failed to read response size from upstream")?;
         let size = i32::from_be_bytes(size_buf) as usize;
-        
+
         if size == 0 {
             warn!("Received zero-length response from upstream");
             continue;
         }
-        
-        if size > 100 * 1024 * 1024 {
-            return Err(anyhow::anyhow!("Response size {} exceeds maximum allowed", size));
+
+        if size > MAX_MESSAGE_SIZE {
+            return Err(anyhow::anyhow!(
+                "Response size {} exceeds maximum allowed ({})",
+                size,
+                MAX_MESSAGE_SIZE
+            ));
         }
-        
+
         if size > buf.len() {
+            let needed = size - buf.len();
+            if total_allocated + needed > MAX_TOTAL_BUFFER {
+                return Err(anyhow::anyhow!(
+                    "Total buffer allocation {} would exceed limit {}, disconnecting",
+                    total_allocated + needed,
+                    MAX_TOTAL_BUFFER
+                ));
+            }
             buf.resize(size, 0);
+            total_allocated += needed;
         }
-        
-        // Read message body
+
         upstream_read.read_exact(&mut buf[..size]).await
             .context("Failed to read response body from upstream")?;
 
