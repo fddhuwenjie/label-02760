@@ -180,7 +180,11 @@ async fn handle_client_to_upstream(
     tx: mpsc::Sender<Vec<u8>>,
     ctx: ProxyContext,
 ) -> Result<()> {
+    const MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
+    const MAX_TOTAL_BUFFER: usize = 256 * 1024 * 1024;
+    
     let mut buf = vec![0u8; 64 * 1024];
+    let mut total_allocated: usize = buf.len();
     
     loop {
         // Read message size (4 bytes)
@@ -194,12 +198,21 @@ async fn handle_client_to_upstream(
             continue;
         }
         
-        if size > 100 * 1024 * 1024 {
-            return Err(anyhow::anyhow!("Message size {} exceeds maximum allowed", size));
+        if size > MAX_MESSAGE_SIZE {
+            return Err(anyhow::anyhow!("Message size {} exceeds maximum allowed {}", size, MAX_MESSAGE_SIZE));
         }
         
         if size > buf.len() {
+            let additional = size - buf.len();
+            if total_allocated + additional > MAX_TOTAL_BUFFER {
+                return Err(anyhow::anyhow!(
+                    "Total buffer allocation {} exceeds maximum allowed {}",
+                    total_allocated + additional,
+                    MAX_TOTAL_BUFFER
+                ));
+            }
             buf.resize(size, 0);
+            total_allocated += additional;
         }
         
         // Read message body
@@ -369,7 +382,11 @@ async fn handle_upstream_to_client(
     tx: mpsc::Sender<Vec<u8>>,
     ctx: ProxyContext,
 ) -> Result<()> {
+    const MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
+    const MAX_TOTAL_BUFFER: usize = 256 * 1024 * 1024;
+    
     let mut buf = vec![0u8; 64 * 1024];
+    let mut total_allocated: usize = buf.len();
     
     loop {
         // Read message size (4 bytes)
@@ -383,12 +400,21 @@ async fn handle_upstream_to_client(
             continue;
         }
         
-        if size > 100 * 1024 * 1024 {
-            return Err(anyhow::anyhow!("Response size {} exceeds maximum allowed", size));
+        if size > MAX_MESSAGE_SIZE {
+            return Err(anyhow::anyhow!("Response size {} exceeds maximum allowed {}", size, MAX_MESSAGE_SIZE));
         }
         
         if size > buf.len() {
+            let additional = size - buf.len();
+            if total_allocated + additional > MAX_TOTAL_BUFFER {
+                return Err(anyhow::anyhow!(
+                    "Total buffer allocation {} exceeds maximum allowed {}",
+                    total_allocated + additional,
+                    MAX_TOTAL_BUFFER
+                ));
+            }
             buf.resize(size, 0);
+            total_allocated += additional;
         }
         
         // Read message body
